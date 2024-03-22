@@ -1,0 +1,537 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This template deploys an environment to run Edico Genome's DRAGEN software using AWS Batch. (qs-1oqea624b)
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+       - W9006 # temporary to get rid of warnings
+       - W9002 # temporary to get rid of warnings
+       - W9003 # temporary to get rid of warnings
+       - W9901 # Not passing all the default parameters to reduce verbosity
+  QuickStartDocumentation:
+    EntrypointName: "Parameters for deploying into an existing VPC"
+    Order: "1"
+  AWSAMIRegionMap:
+    Filters:
+      DRAGEN:
+        owner-alias: aws-marketplace
+        product-code: 9uotaksivr7km6tn0wa0sy2fw
+        product-code.type: marketplace
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Network Configuration
+      Parameters:
+      - VPCID
+      - PrivateSubnet1ID
+      - PrivateSubnet2ID
+    - Label:
+        default: DRAGEN Quick Start Configuration
+      Parameters:
+      - KeyPairName
+      - InstanceType
+      - BidPercentage
+      - MinvCpus
+      - MaxvCpus
+      - DesiredvCpus
+      - GenomicsS3Bucket
+      - RetryNumber
+    - Label:
+        default: AWS Quick Start Configuration
+      Parameters:
+      - QSS3BucketName
+      - QSS3BucketRegion
+      - QSS3KeyPrefix
+    ParameterLabels:
+      KeyPairName:
+        default: Key Pair Name
+      PrivateSubnet1ID:
+        default: Private Subnet 1 ID
+      PrivateSubnet2ID:
+        default: Private Subnet 2 ID
+      VPCID:
+        default: VPC ID
+      QSS3BucketRegion:
+        default: Quick Start S3 bucket region
+      QSS3KeyPrefix:
+        default: Quick Start S3 Key Prefix
+      QSS3BucketName:
+        default: Quick Start S3 Bucket Name
+      InstanceType:
+        default: Instance Type
+      BidPercentage:
+        default: Spot Bid Percentage
+      RetryNumber:
+        default: AWS Batch Retry Number
+      MinvCpus:
+        default: Min vCPUs
+      MaxvCpus:
+        default: Max vCPUs
+      DesiredvCpus:
+        default: Desired vCPUs
+      GenomicsS3Bucket:
+        default: Genomics Data Bucket
+
+Mappings:
+  AWSAMIRegionMap:
+    AMI:
+      DRAGEN: dragen-completesuite-*
+    us-east-1:
+      DRAGEN: ami-031e74a44cf78bbe0
+    us-west-2:
+      DRAGEN: ami-027d691833e1afb2d
+    eu-central-1:
+      DRAGEN: ami-070807320b35acd1d
+    eu-west-1:
+      DRAGEN: ami-0a3b1dcda746bd01d
+    ap-southeast-2:
+      DRAGEN: ami-058a6e883edcdf5ee
+
+Parameters:
+  InstanceType:
+    Type: String
+    Description: Amazon EC2 instance type. DRAGEN requires an FPGA to run, so the instance type must be in the F1 instance family.
+    Default: f1.4xlarge
+    AllowedValues:
+    - f1.2xlarge
+    - f1.4xlarge
+    - f1.16xlarge
+  VPCID:
+    Type: AWS::EC2::VPC::Id
+    Description: The ID of your existing VPC (e.g., vpc-0343606e).
+  PrivateSubnet1ID:
+    Type: AWS::EC2::Subnet::Id
+    Description: The ID of the private subnet in Availability Zone 1 in your existing VPC (e.g., subnet-a0246dcd).
+  PrivateSubnet2ID:
+    Type: AWS::EC2::Subnet::Id
+    Description: The ID of the private subnet in Availability Zone 2 in your existing VPC (e.g., subnet-b58c3d67).
+  QSS3BucketName:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: Quick Start bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Default: aws-ia
+    Description: S3 bucket name for the Quick Start assets. Quick Start bucket name
+      can include numbers, lowercase letters, uppercase letters, and hyphens (-).
+      It cannot start or end with a hyphen (-).
+    Type: String
+  QSS3BucketRegion:
+    Default: 'us-east-1'
+    Description: 'The AWS Region where the Quick Start S3 bucket (QSS3BucketName) is hosted. When using your own bucket, you must specify this value.'
+    Type: String
+  QSS3KeyPrefix:
+    AllowedPattern: ^[0-9a-zA-Z-/]*$
+    ConstraintDescription: Quick Start key prefix can include numbers, lowercase letters,
+      uppercase letters, hyphens (-), and a forward slash (/) at the end of the prefix.
+    Description: S3 key prefix for the Quick Start assets. Quick Start key prefix
+      can include numbers, lowercase letters, uppercase letters, hyphens (-), and
+      forward slash (/).
+    Default: cfn-ps-illumina-dragen/
+    Type: String
+  KeyPairName:
+    Description: The name of an existing public/private key pair, which allows you
+      to securely connect to your instance after it launches
+    Type: AWS::EC2::KeyPair::KeyName
+  BidPercentage:
+    AllowedPattern: (?:\b|-)([1-9]{1,2}[0]?|100)\b
+    ConstraintDescription: Spot Bid Percentage should be between 1 and 100, inclusive
+    Description: The bid percentage set for your AWS Batch Managed Compute Environment with Spot Instances.
+    Default: 50
+    Type: String
+  RetryNumber:
+    AllowedPattern: (?:\b|-)([1-9]|10)\b
+    ConstraintDescription: AWS Batch job retry number should be between 1 and 10
+    Description: Retry number for an AWS Batch job
+    Default: 1
+    Type: String
+  MinvCpus:
+    AllowedPattern: ^(0|[1-9][0-9]{0,2}|1000)$
+    ConstraintDescription: Valid between 0 and 1000, inclusive
+    Description: Minimum vCPUs for your AWS Batch Compute Environment. Recommend 0.
+    Default: 0
+    Type: String
+  MaxvCpus:
+    AllowedPattern: ^(0|[1-9][0-9]{0,2}|1000)$
+    ConstraintDescription: Valid between 0 and 1000, inclusive
+    Description: Maximum vCPUs for your AWS Batch Compute Environment
+    Type: String
+  DesiredvCpus:
+    AllowedPattern: ^(0|[1-9][0-9]{0,2}|1000)$
+    ConstraintDescription: Valid between 1 and 1000, inclusive
+    Description: Desired vCPUs for your AWS Batch Compute Environment. Recommend the same number as MinvCpus for cost-optimization.
+    Default: 0
+    Type: String
+  GenomicsS3Bucket:
+    AllowedPattern: ^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$
+    ConstraintDescription: S3 genomics bucket name can include numbers, lowercase
+      letters, uppercase letters, and hyphens (-). It cannot start or end with a hyphen
+      (-).
+    Description: S3 bucket name for the bucket to which you'll read and write genomics data. 
+    Type: String
+
+Rules:
+  KeyPairsNotEmpty:
+    Assertions:
+    - Assert:
+        !Not
+        - Fn::EachMemberEquals:
+          - Fn::RefAll: AWS::EC2::KeyPair::KeyName
+          - ''
+      AssertDescription: All key pair parameters must not be empty
+  SubnetsInVPC:
+    Assertions:
+    - Assert:
+        Fn::EachMemberIn:
+        - Fn::ValueOfAll:
+          - AWS::EC2::Subnet::Id
+          - VpcId
+        - Fn::RefAll: AWS::EC2::VPC::Id
+      AssertDescription: All subnets must be in the VPC
+  DRAGENSupportedRegionRule:
+    Assertions:
+    - Assert:
+        Fn::Contains:
+        - - us-east-1
+          - us-west-2
+          - eu-central-1
+          - eu-west-1
+          - ap-southeast-2
+        - !Ref AWS::Region
+      AssertDescription: This Quick Start utilizes DRAGEN Marketplace AMI which is only available
+        in specified AWS Regions. Please launch the stack in one of these
+        regions to continue.
+
+Conditions:
+  UsingDefaultBucket: !Equals [!Ref QSS3BucketName, 'aws-ia']
+
+Resources:
+  DockerBucketRepository:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/docker-bucket-repository.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+
+  CopyFiles:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/copy.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
+        DestinationBucket: !GetAtt DockerBucketRepository.Outputs.ArtifactBucket
+
+  WaitHandleContainerBuild:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  ContainerBuild:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - CopyFiles
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/container-build.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        ArtifactBucket: !GetAtt DockerBucketRepository.Outputs.ArtifactBucket
+        ArtifactKey: !Ref QSS3KeyPrefix
+        ServiceName: dragen
+        Repository: !GetAtt DockerBucketRepository.Outputs.Repository
+        WaitHandle: !Ref WaitHandleContainerBuild
+
+  WaitConditionContainerBuild:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn:
+    - ContainerBuild
+    Properties:
+      Handle:
+        Ref: WaitHandleContainerBuild
+      Timeout: '3600'
+      Count: 1
+
+  Batch:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+    - ContainerBuild
+    - WaitConditionContainerBuild
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/batch.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        GenomicsS3Bucket: !Ref GenomicsS3Bucket
+        DragenDockerImage: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${DockerBucketRepository.Outputs.Repository}:dragen
+        VpcId: !Ref VPCID
+        SubnetIds: !Sub "${PrivateSubnet1ID}, ${PrivateSubnet2ID}"
+        BidPercentage: !Ref BidPercentage
+        InstanceType: !Ref InstanceType
+        ImageId: !FindInMap [ AWSAMIRegionMap, !Ref "AWS::Region", DRAGEN ]
+        Ec2KeyPair: !Ref KeyPairName
+        MinvCpus: !Ref MinvCpus
+        MaxvCpus: !Ref MaxvCpus
+        DesiredvCpus: !Ref DesiredvCpus
+        RetryNumber: !Ref RetryNumber
+
+  CleanupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: ConfigPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Sid: Logging
+            Effect: Allow
+            Action:
+              - logs:AssociateKmsKey
+              - logs:CancelExportTask
+              - logs:CreateExportTask
+              - logs:CreateLogDelivery
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:DeleteDestination
+              - logs:DeleteLogDelivery
+              - logs:DeleteLogGroup
+              - logs:DeleteLogStream
+              - logs:DeleteMetricFilter
+              - logs:DeleteQueryDefinition
+              - logs:DeleteResourcePolicy
+              - logs:DeleteRetentionPolicy
+              - logs:DeleteSubscriptionFilter
+              - logs:DescribeDestinations
+              - logs:DescribeExportTasks
+              - logs:DescribeLogGroups
+              - logs:DescribeLogStreams
+              - logs:DescribeMetricFilters
+              - logs:DescribeQueries
+              - logs:DescribeQueryDefinitions
+              - logs:DescribeResourcePolicies
+              - logs:DescribeSubscriptionFilters
+              - logs:DisassociateKmsKey
+              - logs:FilterLogEvents
+              - logs:GetLogDelivery
+              - logs:GetLogEvents
+              - logs:GetLogGroupFields
+              - logs:GetLogRecord
+              - logs:GetQueryResults
+              - logs:ListLogDeliveries
+              - logs:ListTagsLogGroup
+              - logs:PutDestination
+              - logs:PutDestinationPolicy
+              - logs:PutLogEvents
+              - logs:PutMetricFilter
+              - logs:PutQueryDefinition
+              - logs:PutResourcePolicy
+              - logs:PutRetentionPolicy
+              - logs:PutSubscriptionFilter
+              - logs:StartQuery
+              - logs:StopQuery
+              - logs:TagLogGroup
+              - logs:TestMetricFilter
+              - logs:UntagLogGroup
+              - logs:UpdateLogDelivery
+            Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+          - Sid: ECR
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchDeleteImage
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:CreateRepository
+              - ecr:DeleteLifecyclePolicy
+              - ecr:DeleteRegistryPolicy
+              - ecr:DeleteRepository
+              - ecr:DeleteRepositoryPolicy
+              - ecr:DescribeImageScanFindings
+              - ecr:DescribeImages
+              - ecr:DescribeRegistry
+              - ecr:DescribeRepositories
+              - ecr:GetAuthorizationToken
+              - ecr:GetDownloadUrlForLayer
+              - ecr:GetLifecyclePolicy
+              - ecr:GetLifecyclePolicyPreview
+              - ecr:GetRegistryPolicy
+              - ecr:GetRepositoryPolicy
+              - ecr:InitiateLayerUpload
+              - ecr:ListImages
+              - ecr:ListTagsForResource
+              - ecr:PutImage
+              - ecr:PutImageScanningConfiguration
+              - ecr:PutImageTagMutability
+              - ecr:PutLifecyclePolicy
+              - ecr:PutRegistryPolicy
+              - ecr:PutReplicationConfiguration
+              - ecr:ReplicateImage
+              - ecr:SetRepositoryPolicy
+              - ecr:StartImageScan
+              - ecr:StartLifecyclePolicyPreview
+              - ecr:TagResource
+              - ecr:UntagResource
+              - ecr:UploadLayerPart
+            Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DockerBucketRepository.Outputs.Repository}
+          - Sid: S3Bucket
+            Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:BypassGovernanceRetention
+              - s3:CreateAccessPoint
+              - s3:CreateAccessPointForObjectLambda
+              - s3:CreateBucket
+              - s3:CreateJob
+              - s3:DeleteAccessPoint
+              - s3:DeleteAccessPointForObjectLambda
+              - s3:DeleteAccessPointPolicy
+              - s3:DeleteAccessPointPolicyForObjectLambda
+              - s3:DeleteBucket
+              - s3:DeleteBucketOwnershipControls
+              - s3:DeleteBucketPolicy
+              - s3:DeleteBucketWebsite
+              - s3:DeleteJobTagging
+              - s3:DeleteObject
+              - s3:DeleteObjectTagging
+              - s3:DeleteObjectVersion
+              - s3:DeleteObjectVersionTagging
+              - s3:DeleteStorageLensConfiguration
+              - s3:DeleteStorageLensConfigurationTagging
+              - s3:DescribeJob
+              - s3:GetAccelerateConfiguration
+              - s3:GetAccessPoint
+              - s3:GetAccessPointConfigurationForObjectLambda
+              - s3:GetAccessPointForObjectLambda
+              - s3:GetAccessPointPolicy
+              - s3:GetAccessPointPolicyForObjectLambda
+              - s3:GetAccessPointPolicyStatus
+              - s3:GetAccessPointPolicyStatusForObjectLambda
+              - s3:GetAccountPublicAccessBlock
+              - s3:GetAnalyticsConfiguration
+              - s3:GetBucketAcl
+              - s3:GetBucketCORS
+              - s3:GetBucketLocation
+              - s3:GetBucketLogging
+              - s3:GetBucketNotification
+              - s3:GetBucketObjectLockConfiguration
+              - s3:GetBucketOwnershipControls
+              - s3:GetBucketPolicy
+              - s3:GetBucketPolicyStatus
+              - s3:GetBucketPublicAccessBlock
+              - s3:GetBucketRequestPayment
+              - s3:GetBucketTagging
+              - s3:GetBucketVersioning
+              - s3:GetBucketWebsite
+              - s3:GetEncryptionConfiguration
+              - s3:GetIntelligentTieringConfiguration
+              - s3:GetInventoryConfiguration
+              - s3:GetJobTagging
+              - s3:GetLifecycleConfiguration
+              - s3:GetMetricsConfiguration
+              - s3:GetObject
+              - s3:GetObjectAcl
+              - s3:GetObjectLegalHold
+              - s3:GetObjectRetention
+              - s3:GetObjectTagging
+              - s3:GetObjectTorrent
+              - s3:GetObjectVersion
+              - s3:GetObjectVersionAcl
+              - s3:GetObjectVersionForReplication
+              - s3:GetObjectVersionTagging
+              - s3:GetObjectVersionTorrent
+              - s3:GetReplicationConfiguration
+              - s3:GetStorageLensConfiguration
+              - s3:GetStorageLensConfigurationTagging
+              - s3:GetStorageLensDashboard
+              - s3:ListAccessPoints
+              - s3:ListAccessPointsForObjectLambda
+              - s3:ListAllMyBuckets
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:ListBucketVersions
+              - s3:ListJobs
+              - s3:ListMultipartUploadParts
+              - s3:ListStorageLensConfigurations
+              - s3:ObjectOwnerOverrideToBucketOwner
+              - s3:PutAccelerateConfiguration
+              - s3:PutAccessPointConfigurationForObjectLambda
+              - s3:PutAccessPointPolicy
+              - s3:PutAccessPointPolicyForObjectLambda
+              - s3:PutAccountPublicAccessBlock
+              - s3:PutAnalyticsConfiguration
+              - s3:PutBucketAcl
+              - s3:PutBucketCORS
+              - s3:PutBucketLogging
+              - s3:PutBucketNotification
+              - s3:PutBucketObjectLockConfiguration
+              - s3:PutBucketOwnershipControls
+              - s3:PutBucketPolicy
+              - s3:PutBucketPublicAccessBlock
+              - s3:PutBucketRequestPayment
+              - s3:PutBucketTagging
+              - s3:PutBucketVersioning
+              - s3:PutBucketWebsite
+              - s3:PutEncryptionConfiguration
+              - s3:PutIntelligentTieringConfiguration
+              - s3:PutInventoryConfiguration
+              - s3:PutJobTagging
+              - s3:PutLifecycleConfiguration
+              - s3:PutMetricsConfiguration
+              - s3:PutObject
+              - s3:PutObjectAcl
+              - s3:PutObjectLegalHold
+              - s3:PutObjectRetention
+              - s3:PutObjectTagging
+              - s3:PutObjectVersionAcl
+              - s3:PutObjectVersionTagging
+              - s3:PutReplicationConfiguration
+              - s3:PutStorageLensConfiguration
+              - s3:PutStorageLensConfigurationTagging
+              - s3:ReplicateDelete
+              - s3:ReplicateObject
+              - s3:ReplicateTags
+              - s3:RestoreObject
+              - s3:UpdateJobPriority
+              - s3:UpdateJobStatus
+            Resource:
+              - !Sub arn:${AWS::Partition}:s3:::${DockerBucketRepository.Outputs.ArtifactBucket}
+              - !Sub arn:${AWS::Partition}:s3:::${DockerBucketRepository.Outputs.ArtifactBucket}/*
+
+  ContainerCleanup:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://${S3Bucket}.s3.${S3Region}.${AWS::URLSuffix}/${QSS3KeyPrefix}templates/clean-bucket-repository.template.yaml
+        - S3Region: !If [UsingDefaultBucket, !Ref 'AWS::Region', !Ref QSS3BucketRegion]
+          S3Bucket: !If [UsingDefaultBucket, !Sub '${QSS3BucketName}-${AWS::Region}', !Ref QSS3BucketName]
+      Parameters:
+        Bucket: !GetAtt DockerBucketRepository.Outputs.ArtifactBucket
+        Repository: !GetAtt DockerBucketRepository.Outputs.Repository
+        QSS3BucketName: !Ref QSS3BucketName
+        QSS3KeyPrefix: !Ref QSS3KeyPrefix
+        QSS3BucketRegion: !Ref QSS3BucketRegion
+        RoleArn: !GetAtt CleanupRole.Arn
+
+Outputs:
+  DragenJobDefinition:
+    Description: The AWS Batch Job Definition for DRAGEN
+    Value: !GetAtt Batch.Outputs.DragenJobDefinition
+  JobQueue:
+    Description: The Job Queue to submit jobs to
+    Value: !GetAtt Batch.Outputs.JobQueue
+  DragenComputeEnvironmentSpot:
+    Value: !GetAtt Batch.Outputs.DragenComputeEnvironmentSpot
+  DragenComputeEnvironmentOnDemand:
+    Value: !GetAtt Batch.Outputs.DragenComputeEnvironmentOnDemand

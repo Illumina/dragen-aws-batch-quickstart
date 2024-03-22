@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: This CloudFormation template creates the CICD pipeline to build the DRAGEN container. (qs-1s1cul5ll)
+Metadata:
+  cfn-lint: { config: { ignore_checks: [W9006, W9002, W9003] } }
+Parameters:
+  ArtifactBucket:
+    Description: Amazon S3 bucket where the DRAGEN artifact resides
+    Type: String
+  ArtifactKey:
+    Description: Amazon S3 key where the DRAGEN zip artifact resides
+    Type: String
+  ServiceName:
+    Description: Name of the service/batch job.
+    Type: String
+  Repository:
+    Description: URI for the docker repository in Amazon ECR
+    Type: String
+  WaitHandle:
+    Description: CloudFormation WaitHandle. This gets triggered once the build is complete
+    Type: String
+
+Resources:
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+            Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          - Resource: '*'
+            Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+          - Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}/*
+            Effect: Allow
+            Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:GetObjectVersion
+          - Resource: !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${Repository}
+            Effect: Allow
+            Action:
+            - ecr:GetDownloadUrlForLayer
+            - ecr:BatchGetImage
+            - ecr:BatchCheckLayerAvailability
+            - ecr:PutImage
+            - ecr:InitiateLayerUpload
+            - ecr:UploadLayerPart
+            - ecr:CompleteLayerUpload
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: codepipeline.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: root
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Resource:
+            - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}/*
+            - !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}
+            Effect: Allow
+            Action:
+              - s3:AbortMultipartUpload
+              - s3:BypassGovernanceRetention
+              - s3:CreateAccessPoint
+              - s3:CreateAccessPointForObjectLambda
+              - s3:CreateBucket
+              - s3:CreateJob
+              - s3:DeleteAccessPoint
+              - s3:DeleteAccessPointForObjectLambda
+              - s3:DeleteAccessPointPolicy
+              - s3:DeleteAccessPointPolicyForObjectLambda
+              - s3:DeleteBucket
+              - s3:DeleteBucketOwnershipControls
+              - s3:DeleteBucketPolicy
+              - s3:DeleteBucketWebsite
+              - s3:DeleteJobTagging
+              - s3:DeleteObject
+              - s3:DeleteObjectTagging
+              - s3:DeleteObjectVersion
+              - s3:DeleteObjectVersionTagging
+              - s3:DeleteStorageLensConfiguration
+              - s3:DeleteStorageLensConfigurationTagging
+              - s3:DescribeJob
+              - s3:GetAccelerateConfiguration
+              - s3:GetAccessPoint
+              - s3:GetAccessPointConfigurationForObjectLambda
+              - s3:GetAccessPointForObjectLambda
+              - s3:GetAccessPointPolicy
+              - s3:GetAccessPointPolicyForObjectLambda
+              - s3:GetAccessPointPolicyStatus
+              - s3:GetAccessPointPolicyStatusForObjectLambda
+              - s3:GetAccountPublicAccessBlock
+              - s3:GetAnalyticsConfiguration
+              - s3:GetBucketAcl
+              - s3:GetBucketCORS
+              - s3:GetBucketLocation
+              - s3:GetBucketLogging
+              - s3:GetBucketNotification
+              - s3:GetBucketObjectLockConfiguration
+              - s3:GetBucketOwnershipControls
+              - s3:GetBucketPolicy
+              - s3:GetBucketPolicyStatus
+              - s3:GetBucketPublicAccessBlock
+              - s3:GetBucketRequestPayment
+              - s3:GetBucketTagging
+              - s3:GetBucketVersioning
+              - s3:GetBucketWebsite
+              - s3:GetEncryptionConfiguration
+              - s3:GetIntelligentTieringConfiguration
+              - s3:GetInventoryConfiguration
+              - s3:GetJobTagging
+              - s3:GetLifecycleConfiguration
+              - s3:GetMetricsConfiguration
+              - s3:GetObject
+              - s3:GetObjectAcl
+              - s3:GetObjectLegalHold
+              - s3:GetObjectRetention
+              - s3:GetObjectTagging
+              - s3:GetObjectTorrent
+              - s3:GetObjectVersion
+              - s3:GetObjectVersionAcl
+              - s3:GetObjectVersionForReplication
+              - s3:GetObjectVersionTagging
+              - s3:GetObjectVersionTorrent
+              - s3:GetReplicationConfiguration
+              - s3:GetStorageLensConfiguration
+              - s3:GetStorageLensConfigurationTagging
+              - s3:GetStorageLensDashboard
+              - s3:ListAccessPoints
+              - s3:ListAccessPointsForObjectLambda
+              - s3:ListAllMyBuckets
+              - s3:ListBucket
+              - s3:ListBucketMultipartUploads
+              - s3:ListBucketVersions
+              - s3:ListJobs
+              - s3:ListMultipartUploadParts
+              - s3:ListStorageLensConfigurations
+              - s3:ObjectOwnerOverrideToBucketOwner
+              - s3:PutAccelerateConfiguration
+              - s3:PutAccessPointConfigurationForObjectLambda
+              - s3:PutAccessPointPolicy
+              - s3:PutAccessPointPolicyForObjectLambda
+              - s3:PutAccountPublicAccessBlock
+              - s3:PutAnalyticsConfiguration
+              - s3:PutBucketAcl
+              - s3:PutBucketCORS
+              - s3:PutBucketLogging
+              - s3:PutBucketNotification
+              - s3:PutBucketObjectLockConfiguration
+              - s3:PutBucketOwnershipControls
+              - s3:PutBucketPolicy
+              - s3:PutBucketPublicAccessBlock
+              - s3:PutBucketRequestPayment
+              - s3:PutBucketTagging
+              - s3:PutBucketVersioning
+              - s3:PutBucketWebsite
+              - s3:PutEncryptionConfiguration
+              - s3:PutIntelligentTieringConfiguration
+              - s3:PutInventoryConfiguration
+              - s3:PutJobTagging
+              - s3:PutLifecycleConfiguration
+              - s3:PutMetricsConfiguration
+              - s3:PutObject
+              - s3:PutObjectAcl
+              - s3:PutObjectLegalHold
+              - s3:PutObjectRetention
+              - s3:PutObjectTagging
+              - s3:PutObjectVersionAcl
+              - s3:PutObjectVersionTagging
+              - s3:PutReplicationConfiguration
+              - s3:PutStorageLensConfiguration
+              - s3:PutStorageLensConfigurationTagging
+              - s3:ReplicateDelete
+              - s3:ReplicateObject
+              - s3:ReplicateTags
+              - s3:RestoreObject
+              - s3:UpdateJobPriority
+              - s3:UpdateJobStatus
+          - Resource: !Sub arn:${AWS::Partition}:codebuild:${AWS::Region}:${AWS::AccountId}:project/*
+            Effect: Allow
+            Action:
+            - codebuild:StartBuild
+            - codebuild:BatchGetBuilds
+          - Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*
+            Effect: Allow
+            Action:
+            - iam:PassRole
+          - Resource: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:*
+            Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-BuildProject
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - sudo apt-get update && sudo apt-get install -y curl
+                - ls -al
+                - cd ${SERVICE_NAME}
+                - ls -al
+                - $(aws ecr get-login)
+                - TAG=${SERVICE_NAME}
+            build:
+              commands:
+                - docker build --tag ${REPOSITORY_URI}:${TAG} .
+            post_build:
+              commands:
+                - docker push ${REPOSITORY_URI}:${TAG}
+                - printf '{"tag":"%s"}' $TAG > ../build.json
+                - curl -X PUT -H 'Content-Type:' --data-binary '{"Status":"SUCCESS","Reason":"Container Build Complete","UniqueId":"ID1234","Data":"Build has completed."}' "${WAIT_HANDLE}"
+          artifacts:
+            files: build.json
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/docker:1.12.1
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+        - Name: AWS_DEFAULT_REGION
+          Value: !Ref AWS::Region
+        - Name: SERVICE_NAME
+          Value: !Ref ServiceName
+        - Name: REPOSITORY_URI
+          Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${Repository}
+        - Name: WAIT_HANDLE
+          Value: !Ref WaitHandle
+      ServiceRole: !Ref CodeBuildServiceRole
+      TimeoutInMinutes: 120
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: App
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: "1"
+            Provider: S3
+          OutputArtifacts:
+          - Name: App
+          RunOrder: 1
+          Configuration:
+            S3Bucket: !Sub ${ArtifactBucket}
+            S3ObjectKey: !Sub ${ArtifactKey}app/packages/${ServiceName}/${ServiceName}.zip
+      - Name: Build
+        Actions:
+        - Name: Build
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: "1"
+            Provider: CodeBuild
+          Configuration:
+            ProjectName: !Ref CodeBuildProject
+          InputArtifacts:
+          - Name: App
+          OutputArtifacts:
+          - Name: BuildOutput
+          RunOrder: 1
+
+Outputs:
+  PipelineUrl:
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${Pipeline}
+  ServiceStack:
+    Value: !Sub ${AWS::StackName}-Service
