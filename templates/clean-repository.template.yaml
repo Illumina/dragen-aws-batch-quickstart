@@ -22,7 +22,7 @@ Resources:
     Properties:
       Description: Removes an ECR Repository.
       Handler: index.handler
-      Runtime: python3.7
+      Runtime: python3.12
       Role: !Ref ServiceToken
       Timeout: 240
       Code:

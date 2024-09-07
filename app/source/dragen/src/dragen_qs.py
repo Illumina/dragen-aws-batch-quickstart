@@ -85,6 +85,23 @@ def exec_cmd(cmd):
     err = p.wait()
     return err
 
+def exec_cmd(cmd, logfile=None):
+	printf("Executing %s" % cmd.strip())
+	p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+ 
+	output = ""
+	for line in p.stdout:
+		line = line.decode('utf-8')
+		print(line.strip())
+		output += line
+ 
+	err = p.wait()
+ 
+	if logfile:
+		print(logfile)
+		with open(logfile , 'w') as f:
+			f.write(output)
+	return err
 
 #########################################################################################
 # DragenJob - Dragen Job execution object
@@ -375,7 +392,7 @@ class DragenJob(object):
     # exec_download - Download a file from the given URL to the target directory
     #
     def exec_url_download(self, url, target_dir):
-        dl_cmd = '{bin} --mode download --url {url} --path {target}'.format(
+        dl_cmd = '{bin} --mode download --url {url} --path {target} -s'.format(
             bin=self.D_HAUL_UTIL,
             url=url,
             target=target_dir)
@@ -391,7 +408,7 @@ class DragenJob(object):
     # download_s3_object: Download an object from S3 bucket/key to spefific target file path
     #
     def download_s3_object(self, bucket, key, target_path):
-        dl_cmd = '{bin} --mode download --bucket {bucket} --key {key} --path {target}'.format(
+        dl_cmd = '{bin} --mode download --bucket {bucket} --key {key} --path {target} -s'.format(
             bin=self.D_HAUL_UTIL,
             bucket=bucket,
             key=key,
@@ -626,7 +643,7 @@ class DragenJob(object):
             sys.exit(1)
 
         target_path = self.DEFAULT_DATA_FOLDER  # Specifies the root
-        dl_cmd = '{bin} --mode download --bucket {bucket} --key {key} --path {target}'.format(
+        dl_cmd = '{bin} --mode download --bucket {bucket} --key {key} --path {target} -s'.format(
             bin=self.D_HAUL_UTIL,
             bucket=s3_bucket,
             key=s3_key,
@@ -731,12 +748,12 @@ class DragenJob(object):
 
         # Save the Dragen output to a file instead of stdout
         output_log_path = self.output_dir + '/' + self.DRAGEN_LOG_FILE_NAME % round(time.time())
-        redirect_cmd = self.REDIRECT_OUTPUT_CMD_SUFFIX % output_log_path
-        dragen_cmd = "%s %s" % (dragen_cmd, redirect_cmd)
+#        redirect_cmd = self.REDIRECT_OUTPUT_CMD_SUFFIX % output_log_path
+#        dragen_cmd = "%s %s" % (dragen_cmd, redirect_cmd)
 
         # Run the Dragen process
-        self.process_start_time = datetime.datetime.utcnow()
-        exit_code = exec_cmd(dragen_cmd)
+        self.process_start_time = datetime.datetime.now(datetime.UTC)
+        exit_code = exec_cmd(dragen_cmd, output_log_path)
 
         # Upload the results to S3 output bucket
         self.upload_job_outputs()
@@ -758,7 +775,7 @@ class DragenJob(object):
                     signum = -self.global_exit_code
                 printf("Job terminated due to signal %s" % signum)
 
-        self.process_end_time = datetime.datetime.utcnow()
+        self.process_end_time = datetime.datetime.now(datetime.UTC)
         return
 
     ########################################################################################
