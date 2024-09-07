@@ -252,6 +252,8 @@ Resources:
               echo ECS_NUM_IMAGES_DELETE_PER_CYCLE=5>>/etc/ecs/ecs.config
               echo ECS_RESERVED_MEMORY=32>>/etc/ecs/ecs.config
               echo ECS_AVAILABLE_LOGGING_DRIVERS='["json-file","awslogs"]'>>/etc/ecs/ecs.config
+              qs_retry_command 10 yum downgrade -y docker-ce-25.0.5-1.el8 docker-ce-cli-25.0.5-1.el8 docker-ce-rootless-extras-25.0.5-1.el8
+              qs_retry_command 10 systemctl restart docker
               qs_retry_command 10 docker stop ecs-agent
               qs_retry_command 10 docker rm ecs-agent
               qs_retry_command 10 docker pull amazon/amazon-ecs-agent:latest
@@ -372,6 +374,9 @@ Resources:
           - ContainerPath: "/var/lib/edico"
             ReadOnly: False
             SourceVolume: docker_var_lib_edico
+          - ContainerPath: "/usr/lib64/libdragen.so.4.3.6"
+            ReadOnly: False
+            SourceVolume: docker_usr_lib64
         Volumes:
           - Name: docker_scratch
             Host:
@@ -385,6 +390,9 @@ Resources:
           - Name: docker_var_lib_edico
             Host:
               SourcePath: "/var/lib/edico"
+          - Name: docker_usr_lib64
+            Host:
+              SourcePath: "/usr/lib64/libdragen.so.4.3.6"
 
 Outputs:
   DragenComputeEnvironmentSpot:

@@ -1,9 +1,11 @@
 # DRAGEN Quickstart Docker image generator --
-FROM public.ecr.aws/docker/library/centos:centos7.9.2009
-RUN rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+FROM public.ecr.aws/docker/library/oraclelinux:8
+RUN rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+
+RUN /usr/bin/crb enable
 
 # Install Basic packages needed for Dragen
-RUN yum -y install \
+RUN dnf -y install \
   perl \
   sos \
   coreutils \
@@ -15,25 +17,22 @@ RUN yum -y install \
   ca-certificates \
   ipmitool \
   smartmontools \
-  rsync && \
+  rsync \
+  tree && \
   yum clean all && \
   mkdir -m777 -p /var/log/dragen /var/run/dragen
+
 
 #########################################################
 # Now install the Edico WFMS "Wrapper" functions
 
 # Install necessary standard packages
 # Note: 'easy_install' used to workaround docker/kernel issue (https://github.com/moby/moby/issues/12327)
-RUN yum -y install \
-    python3-devel \
-    tree && \
-    yum clean all
+RUN dnf install python3.12 python3.12-pip && \
+    dnf clean all
 
 RUN python3 -m pip install --upgrade pip && \
-  python3 -m pip install future && \
-  python3 -m pip install six && \
-  python3 -m pip install requests && \
-  python3 -m pip install boto3
+    python3 -m pip install future six requests boto3
 
 # Install d_haul and dragen_job_execute wrapper functions and associated packages
 RUN mkdir -p /root/quickstart/scheduler && \
