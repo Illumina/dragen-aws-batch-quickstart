@@ -5,7 +5,7 @@
 :partner-company-name: Illumina
 :doc-month: July
 :doc-year: 2023
-:partner-contributors: hjo-ilmn-doc-edits, {partner-company-name}
+:partner-contributors: hjo-ilmn-doc-edits-my-test, {partner-company-name}
 // :other-contributors: Akua Mansa, Trek10
 :aws-contributors: Will Quiles, Olivia Choudhury, Aaron Friedman, and Vinod Shukla, AWS
 // :aws-ia-contributors: Toni Jones, AWS Integration & Automation team
