@@ -228,6 +228,7 @@ Resources:
           phases:
             pre_build:
               commands:
+                - sudo rm /usr/share/keyrings/corretto-keyring.gpg && wget -O - https://apt.corretto.aws/corretto.key | sudo gpg --dearmor -o /usr/share/keyrings/corretto-keyring.gpg
                 - apt-get update && sudo apt-get install -y curl
                 - ls -al
                 - cd ${SERVICE_NAME}
