@@ -31,7 +31,8 @@ import sys
 import time
 import uuid
 import six
-
+import re
+import tarfile
 
 #########################################################################################
 # printf - Print to stdout with flush
@@ -86,22 +87,40 @@ def exec_cmd(cmd):
     return err
 
 def exec_cmd(cmd, logfile=None):
-	printf("Executing %s" % cmd.strip())
-	p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
- 
-	output = ""
-	for line in p.stdout:
-		line = line.decode('utf-8')
-		print(line.strip())
-		output += line
- 
-	err = p.wait()
- 
-	if logfile:
-		print(logfile)
-		with open(logfile , 'w') as f:
-			f.write(output)
-	return err
+        printf("Executing %s" % cmd.strip())
+        p = subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        output = ""
+        for line in p.stdout:
+                line = line.decode('utf-8')
+                print(line.strip())
+                output += line
+
+        err = p.wait()
+
+        if logfile:
+                print(logfile)
+                with open(logfile , 'w') as f:
+                        f.write(output)
+        return err
+
+
+#########################################################################################
+# address CVE-2007-4559
+#
+
+def is_within_directory(directory, target):
+    abs_directory = os.path.abspath(directory)
+    abs_target = os.path.abspath(target)
+    return os.path.commonpath([abs_directory]) == os.path.commonpath([abs_directory, abs_target])
+
+def safe_extract(tar, path=".", members=None):
+    for member in tar.getmembers():
+        member_path = os.path.join(path, member.name)
+        if not is_within_directory(path, member_path):
+            raise Exception(f"Unsafe path detected: {member.name}")
+    tar.extractall(path, members)
+
 
 #########################################################################################
 # DragenJob - Dragen Job execution object
@@ -109,7 +128,9 @@ def exec_cmd(cmd, logfile=None):
 class DragenJob(object):
     DRAGEN_PATH = '/opt/edico/bin/dragen'
     D_HAUL_UTIL = 'python3 /root/quickstart/d_haul'
+#    D_HAUL_UTIL = 'python3 /home/hjo/test/AWS_refactor/d_haul'
     DRAGEN_LOG_FILE_NAME = 'dragen_log_%d.txt'
+    DEFAULT_DATA_FOLDER = '/home/hjo/test/AWS_refactor/'
     DEFAULT_DATA_FOLDER = '/ephemeral/'
     CLOUD_SPILL_FOLDER = '/ephemeral/'
 
@@ -127,52 +148,9 @@ class DragenJob(object):
         self.ref_dir = None             # Create local directory to download reference
         self.input_dir = None           # Create local directory for Dragen input info
 
-        self.ref_s3_url = None          # Determine from the -r or --ref-dir option
-        self.ref_s3_index = -1
+        self.ref_s3_uri = None
+        self.ref_s3_uri_index = -1
 
-        self.fastq_list_url = None      # Determine from the --fastq-list option
-        self.fastq_list_index = -1
-
-        self.tumor_fastq_list_url = None     # Determine from the --tumor-fastq-list option
-        self.tumor_fastq_list_index = -1
-
-        self.vc_tgt_bed_url = None      # Determine from the --vc-target-bed option
-        self.vc_tgt_bed_index = -1
-
-        self.vc_depth_url = None        # Determine from the ----vc-depth-intervals-bed
-        self.vc_depth_index = -1
-
-        self.cnv_normals_list_url = None  # Determine from  --cnv-normals-list option
-        self.cnv_normals_index = -1
-
-        self.cnv_target_bed_url = None    # Determine from --cnv-target-bed option
-        self.cnv_target_index = -1
-
-        self.dbsnp_url = None             # Determine from --dbsnp option
-        self.dbsnp_index = -1
-
-        self.cosmic_url = None            # Determine from --cosmic option
-        self.cosmic_index = -1
-
-        self.qc_cross_cont_vcf_url = None    # Determine from --qc-cross-cont-vcf-url
-        self.qc_cross_cont_vcf_index = -1
-
-        self.qc_coverage_region_1_url = None  # Determine from --qc-coverage-region-1
-        self.qc_coverage_region_1_index = -1
-
-        self.qc_coverage_region_2_url = None  # Determine from --qc-coverage-region-2
-        self.qc_coverage_region_2_index = -1
-
-        self.qc_coverage_region_3_url = None  # Determine from --qc-coverage-region-3
-        self.qc_coverage_region_3_index = -1
-
-        self.pedigree_file_url = None   # Determine from --pedigree-file option
-        self.pedigree_file_index = -1
-
-        self.vc_ml_url = None           # Determine from --vc-ml-dir option
-        self.vc_ml_index = -1
-
-        # Output info
         self.output_s3_url = None       # Determine from the --output-directory field
         self.output_s3_index = -1
         self.output_dir = None          # Create local output directory for current dragen process
@@ -183,105 +161,10 @@ class DragenJob(object):
         self.process_end_time = None    # Process end time
         self.global_exit_code = 0       # Global exit code. If any process fails then we exit with a non-zero status
 
+        self.exclusion = [ '--ref-dir', '-r', '--output-directory', '--lic-server' ]
+        self.cloud_files = []
+
         self.set_resource_limits()
-        self.parse_download_args()
-
-    ########################################################################################
-    # parse_download_args - Parse the command line looking for these specific options which
-    # are used to download S3 files
-    #
-    def parse_download_args(self):
-        # -r or --reference: S3 URL for reference HT
-        opt_no = find_arg_in_list(self.orig_args, '-r', '--ref-dir')
-        if opt_no >= 0:
-            self.ref_s3_url = self.orig_args[opt_no + 1]
-            self.ref_s3_index = opt_no + 1
-
-        # --output-directory: S3 URL for output location
-        opt_no = find_arg_in_list(self.orig_args, '--output-directory')
-        if opt_no >= 0:
-            self.output_s3_url = self.orig_args[opt_no + 1]
-            self.output_s3_index = opt_no + 1
-
-        # --fastq-list: URL (http or s3) for fastq list CSV file
-        opt_no = find_arg_in_list(self.orig_args, '--fastq-list')
-        if opt_no >= 0:
-            self.fastq_list_url = self.orig_args[opt_no + 1]
-            self.fastq_list_index = opt_no + 1
-
-        # --tumor-fastq-list: URL (http or s3) for tumor fastq list CSV file
-        opt_no = find_arg_in_list(self.orig_args, '--tumor-fastq-list')
-        if opt_no >= 0:
-            self.tumor_fastq_list_url = self.orig_args[opt_no + 1]
-            self.tumor_fastq_list_index = opt_no + 1
-
-
-        # --vc-target-bed: URL for the VC target bed
-        opt_no = find_arg_in_list(self.orig_args, '--vc-target-bed')
-        if opt_no >= 0:
-            self.vc_tgt_bed_url = self.orig_args[opt_no + 1]
-            self.vc_tgt_bed_index = opt_no + 1
-
-        # --vc-depth-intervals-bed: URL for the VC depth intervals
-        opt_no = find_arg_in_list(self.orig_args, '--vc-depth-intervals-bed')
-        if opt_no >= 0:
-            self.vc_depth_url = self.orig_args[opt_no + 1]
-            self.vc_depth_index = opt_no + 1
-
-        # --cnv-normals-list : URL for CNV normals list
-        opt_no = find_arg_in_list(self.orig_args, '--cnv-normals-list')
-        if opt_no >= 0:
-            self.cnv_normals_list_url = self.orig_args[opt_no + 1]
-            self.cnv_normals_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--cnv-target-bed')
-        if opt_no >= 0:
-            self.cnv_target_bed_url = self.orig_args[opt_no + 1]
-            self.cnv_target_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--dbsnp')
-        if opt_no >= 0:
-            self.dbsnp_url = self.orig_args[opt_no + 1]
-            self.dbsnp_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--cosmic')
-        if opt_no >= 0:
-            self.cosmic_url = self.orig_args[opt_no + 1]
-            self.cosmic_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--qc-cross-cont-vcf')
-        if opt_no >= 0:
-            self.qc_cross_cont_vcf_url = self.orig_args[opt_no + 1]
-            self.qc_cross_cont_vcf_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--qc-coverage-region-1')
-        if opt_no >= 0:
-            self.qc_coverage_region_1_url = self.orig_args[opt_no + 1]
-            self.qc_coverage_region_1_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--qc-coverage-region-2')
-        if opt_no >= 0:
-            self.qc_coverage_region_2_url = self.orig_args[opt_no + 1]
-            self.qc_coverage_region_2_index = opt_no + 1
-
-        opt_no = find_arg_in_list(self.orig_args, '--qc-coverage-region-3')
-        if opt_no >= 0:
-            self.qc_coverage_region_3_url = self.orig_args[opt_no + 1]
-            self.qc_coverage_region_3_index = opt_no + 1
-
-        # --pedigree-file: URL for the pedigree table file
-        opt_no = find_arg_in_list(self.orig_args, '--pedigree-file')
-        if opt_no >= 0:
-            self.pedigree_file_url = self.orig_args[opt_no + 1]
-            self.pedigree_file_index = opt_no + 1
-
-        # --vc-ml-dir: URL for the ML model file, needs dragen version 3.9 or later
-        opt_no = find_arg_in_list(self.orig_args, '--vc-ml-dir')
-        if opt_no >= 0:
-            self.vc_ml_url = self.orig_args[opt_no + 1]
-            self.vc_ml_index = opt_no + 1
-
-        return
 
     ########################################################################################
     # set_resource_limits - Set resource limits prior.
@@ -363,7 +246,6 @@ class DragenJob(object):
     def download_dragen_fpga(self):
         exit_code = \
             exec_cmd("/opt/edico/bin/dragen --partial-reconfig DNA-MAPPER --ignore-version-check true -Z 0")
-
         if not exit_code:
             # PR complete success. Write '1' into status file
             f = open(self.FPGA_DOWNLOAD_STATUS_FILE, 'w')
@@ -414,9 +296,37 @@ class DragenJob(object):
             key=key,
             target=target_path)
         exit_code = exec_cmd(dl_cmd)
+
         if exit_code:
             printf('Error: Failure downloading from S3. Exiting with code %d' % exit_code)
             sys.exit(exit_code)
+
+
+    def parse_input_args(self):
+        if not self.input_dir:
+            self.input_dir = self.DEFAULT_DATA_FOLDER + 'inputs/'
+
+        for i, arg in enumerate(self.orig_args):
+            prev_arg = self.orig_args[i - 1] if i > 0 else None
+
+            if prev_arg in self.exclusion:
+                if prev_arg == '--ref-dir':
+                    self.ref_s3_uri_index = i - 1
+                    self.ref_s3_uri = arg
+                elif prev_arg == '--output-directory':
+                    self.output_directory_s3_uri_index = i - 1
+                    self.output_directory_s3_uri = arg
+
+                continue
+
+            if arg.startswith("s3://") or arg.startswith("https://"):
+                filename = arg.split('?')[0].split('/')[-1]  # Extract filename
+                target_path = self.input_dir + filename  # Local path
+                self.cloud_files.append(arg)
+
+                self.new_args[i] = target_path  # Update argument list
+
+
 
     ########################################################################################
     # download_inputs: Download specific Dragen inputs needed from provided URLs, and
@@ -427,201 +337,17 @@ class DragenJob(object):
         if not self.input_dir:
             self.input_dir = self.DEFAULT_DATA_FOLDER + 'inputs/'
 
-        # -- fastq list file download
-        if self.fastq_list_url:
-            filename = self.fastq_list_url.split('?')[0].split('/')[-1]
+        for cloud_file in self.cloud_files:
+            filename = cloud_file.split('?')[0].split('/')[-1]
             target_path = self.input_dir + str(filename)
+            print(f'downloading {target_path}/{filename}')
 
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.fastq_list_url)
+            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(cloud_file)
             if s3_valid:
                 self.download_s3_object(s3_bucket, s3_key, target_path)
             else:
                 # Try to download using http
-                self.exec_url_download(self.fastq_list_url, self.input_dir)
-
-            self.new_args[self.fastq_list_index] = target_path
-
-        # -- tumor_fastq list file download
-        if self.tumor_fastq_list_url:
-            filename = self.tumor_fastq_list_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.tumor_fastq_list_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                # Try to download using http
-                self.exec_url_download(self.tumor_fastq_list_url, self.input_dir)
-
-            self.new_args[self.tumor_fastq_list_index] = target_path
-
-        # -- VC target bed download
-        if self.vc_tgt_bed_url:
-            filename = self.vc_tgt_bed_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.vc_tgt_bed_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                # Try to download using http
-                self.exec_url_download(self.vc_tgt_bed_url, self.input_dir)
-
-            self.new_args[self.vc_tgt_bed_index] = target_path
-
-        # -- VC Depth file download
-        if self.vc_depth_url:
-            filename = self.vc_depth_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.vc_depth_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                # Try to download using http
-                self.exec_url_download(self.vc_depth_url, self.input_dir)
-
-            self.new_args[self.vc_depth_index] = target_path
-
-            # --cnv-normals-list file download
-        if self.cnv_normals_list_url:
-            filename = self.cnv_normals_list_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.cnv_normals_list_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.cnv_normals_list_url, self.input_dir)
-
-            self.new_args[self.cnv_normals_list_index] = target_path
-
-           # --cnv-target-bed file download
-        if self.cnv_target_bed_url:
-            filename = self.cnv_target_bed_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.cnv_target_bed_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.cnv_target_bed_url, self.input_dir)
-
-            self.new_args[self.cnv_target_bed_index] = target_path
-
-           # --dbsnp file download
-        if self.dbsnp_url:
-            filename = self.dbsnp_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.dbsnp_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.dbsnp_url, self.input_dir)
-
-            self.new_args[self.dbsnp_index] = target_path
-
-           # --cosmic file download
-        if self.cosmic_url:
-            filename = self.cosmic_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.cosmic_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.cosmic_url, self.input_dir)
-
-            self.new_args[self.cosmic_index] = target_path
-
-           # --qc-cross-cont-vcf file download
-        if self.qc_cross_cont_vcf_url:
-            filename = self.qc_cross_cont_vcf_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.qc_cross_cont_vcf_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.qc_cross_cont_vcf_url, self.input_dir)
-
-            self.new_args[self.qc_cross_cont_vcf_index] = target_path
-
-          # --qc-coverage-region-1 file download
-        if self.qc_coverage_region_1_url:
-            filename = self.qc_coverage_region_1_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.qc_coverage_region_1_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.qc_coverage_region_1_url, self.input_dir)
-
-            self.new_args[self.qc_coverage_region_1_index] = target_path
-
-            # --qc-coverage-region-2 file download
-        if self.qc_coverage_region_2_url:
-            filename = self.qc_coverage_region_2_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.qc_coverage_region_2_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                    # Try to download using http
-                self.exec_url_download(self.qc_coverage_region_2_url, self.input_dir)
-
-            self.new_args[self.qc_coverage_region_2_index] = target_path
-
-            # --qc-coverage-region-3 file download
-        if self.qc_coverage_region_3_url:
-            filename = self.qc_coverage_region_3_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.qc_coverage_region_3_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                 # Try to download using http
-                self.exec_url_download(self.qc_coverage_region_3_url, self.input_dir)
-
-            self.new_args[self.qc_coverage_region_3_index] = target_path
-
-            # --pedigree-file file download
-        if self.pedigree_file_url:
-            filename = self.pedigree_file_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.pedigree_file_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                # Try to download using http
-                self.exec_url_download(self.pedigree_file_url, self.input_dir)
-
-            self.new_args[self.pedigree_file_index] = target_path
-
-            # --vc-ml-dir file download
-        if self.vc_ml_url:
-            filename = self.vc_ml_url.split('?')[0].split('/')[-1]
-            target_path = self.input_dir + str(filename)
-
-            s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.vc_ml_url)
-            if s3_valid:
-                self.download_s3_object(s3_bucket, s3_key, target_path)
-            else:
-                # Try to download using http
-                self.exec_url_download(self.vc_ml_url, self.input_dir)
-
-            self.new_args[self.vc_ml_index] = target_path
+                self.exec_url_download(cloud_file, self.input_dir)
 
         return
 
@@ -629,35 +355,67 @@ class DragenJob(object):
     # download_ref_tables: Download directory of reference hash tables using the S3
     #  "directory" prefix self.ref_s3_url should be in format s3://bucket/ref_objects_prefix
     #
-    def download_ref_tables(self):
 
-        if not self.ref_s3_url:
-            printf('Warning: No reference HT directory URL specified!')
+    def download_ref_tables(self):
+        if not self.ref_s3_uri:
+            print('Warning: No reference HT directory URL specified!')
             return
 
-        # Generate the params to download the HT based on URL s3://bucket/key
-        s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.ref_s3_url)
-
+    # Parse S3 URI
+        s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.ref_s3_uri)
         if not s3_valid or not s3_key or not s3_bucket:
-            printf('Error: could not get S3 bucket and key info from specified URL %s' % self.ref_s3_url)
-            sys.exit(1)
+            raise ValueError(f'Could not parse S3 bucket/key from: {self.ref_s3_uri}')
 
-        target_path = self.DEFAULT_DATA_FOLDER  # Specifies the root
-        dl_cmd = '{bin} --mode download --bucket {bucket} --key {key} --path {target} -s'.format(
-            bin=self.D_HAUL_UTIL,
-            bucket=s3_bucket,
-            key=s3_key,
-            target=target_path)
+        is_tar_file = re.search(r'\.tar(\.gz)?$', s3_key)
+        target_path = self.DEFAULT_DATA_FOLDER
 
-        exit_code = exec_cmd(dl_cmd)
+        if is_tar_file:
+            # Handle tarball case
+            ref_tar_filename = os.path.basename(s3_key)
+            ref_tar_path = os.path.join(target_path, ref_tar_filename)
+            ref_dirname = re.sub(r'\.tar(\.gz)?$', '', ref_tar_filename)
+            ref_dir = os.path.join(target_path, ref_dirname)
 
-        if exit_code:
-            printf('Error: Failure downloading from S3. Exiting with code %d' % exit_code)
-            sys.exit(exit_code)
+            # Download .tar file
+            try:
+                self.download_s3_object(s3_bucket, s3_key, ref_tar_path)
+            except Exception as e:
+                raise RuntimeError(f'Failed to download tar file from S3: {e}')
 
-        self.ref_dir = self.DEFAULT_DATA_FOLDER + s3_key
-        self.new_args[self.ref_s3_index] = self.ref_dir
-        return
+            # Ensure it exists
+            if not os.path.exists(ref_tar_path):
+                raise FileNotFoundError(f'Downloaded file not found: {ref_tar_path}')
+
+            # Extract
+            try:
+                os.makedirs(ref_dir, exist_ok=True)
+                with tarfile.open(ref_tar_path, mode="r:*") as tar:
+                    print('Extracting reference tarball...')
+                    safe_extract(tar, path=ref_dir)
+                print(f'Successfully extracted to {ref_dir}')
+            except Exception as e:
+                raise RuntimeError(f'Error extracting tar file: {e}')
+
+
+            self.ref_dir = ref_dir
+
+        else:
+            # Handle folder (prefix) case
+            try:
+                self.download_s3_object(s3_bucket, s3_key, target_path)
+            except Exception as e:
+                raise RuntimeError(f'Failed to download reference folder from S3: {e}')
+
+            # Construct local directory path
+            ref_dir = os.path.join(target_path, s3_key)
+            if not os.path.exists(ref_dir):
+                raise FileNotFoundError(f'Expected reference folder not found after download: {ref_dir}')
+
+            self.ref_dir = ref_dir
+
+        # Update argument list
+        self.new_args[self.ref_s3_uri_index + 1] = self.ref_dir
+
 
     ########################################################################################
     # Upload the results of the job to the desired bucket location
@@ -665,15 +423,15 @@ class DragenJob(object):
     # Returns:
     #    Nothing if success
     def upload_job_outputs(self):
-        if not self.output_s3_url:
+        if not self.output_directory_s3_uri:
             printf('Error: Output S3 location not specified!')
             return
 
         # Generate the command to upload the results
-        s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.output_s3_url)
+        s3_valid, s3_bucket, s3_key = get_s3_bucket_key(self.output_directory_s3_uri)
 
         if not s3_valid or not s3_key or not s3_bucket:
-            printf('Error: could not get S3 bucket and key info from specified URL %s' % self.output_s3_url)
+            printf('Error: could not get S3 bucket and key info from specified URL %s' % self.output_directory_s3_uri)
             sys.exit(1)
 
         ul_cmd = '{bin} --mode upload --bucket {bucket} --key {key} --path {file} -s'.format(
@@ -708,8 +466,7 @@ class DragenJob(object):
             printf("Output directory %s already exists - Skip creating." % self.output_dir)
 
         # Add or replace the output directory in the dragen parameters
-        if self.output_s3_index >= 0:
-            self.new_args[self.output_s3_index] = self.output_dir
+        self.new_args[self.output_directory_s3_uri_index + 1] = self.output_dir
 
         return
 
@@ -723,12 +480,11 @@ class DragenJob(object):
         if not os.path.isfile(self.FPGA_DOWNLOAD_STATUS_FILE):
             self.download_dragen_fpga()
 
+
         # If board is in bad state, run dragen_reset before next process starts
         self.check_board_state()
-
         # Setup unique output directory
         self.create_output_dir()
-
         # Add some internally defined parameters
         self.new_args.extend(
             ['--intermediate-results-dir', self.CLOUD_SPILL_FOLDER]
@@ -736,22 +492,17 @@ class DragenJob(object):
         self.new_args.extend(
             ['--lic-no-print']
         )
-
         # expand the Dragen args to construct the full command
         dragen_opts = ' '.join(self.new_args)
-
         # Construct the 'main' Dragen command
         dragen_cmd = "%s %s " % (self.DRAGEN_PATH, dragen_opts)
-
         # Save the Dragen output to a file instead of stdout
-        output_log_path = self.output_dir + '/' + self.DRAGEN_LOG_FILE_NAME % round(time.time())
-#        redirect_cmd = self.REDIRECT_OUTPUT_CMD_SUFFIX % output_log_path
-#        dragen_cmd = "%s %s" % (dragen_cmd, redirect_cmd)
+        log_filename = self.DRAGEN_LOG_FILE_NAME % round(time.time())
+        output_log_path = os.path.join(self.output_dir, log_filename)
 
         # Run the Dragen process
         self.process_start_time = datetime.datetime.now(datetime.UTC)
         exit_code = exec_cmd(dragen_cmd, output_log_path)
-
         # Upload the results to S3 output bucket
         self.upload_job_outputs()
 
@@ -814,12 +565,14 @@ def main():
 
     dragen_job = DragenJob(dragen_args)
 
+    dragen_job.parse_input_args()
+
+
     printf('Downloading reference files')
     dragen_job.download_ref_tables()
 
     printf('Downloading misc inputs (csv, bed)')
     dragen_job.download_inputs()
-
     printf('Run Analysis job')
     dragen_job.run()
 
