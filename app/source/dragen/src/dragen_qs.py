@@ -306,8 +306,9 @@ class DragenJob(object):
                             rlimit[res] = int(fields[3])
         else:
             rlimit[resource.RLIMIT_NPROC] = 16384
-            rlimit[resource.RLIMIT_NOFILE] = 65535
+            rlimit[resource.RLIMIT_NOFILE] = 720000
             rlimit[resource.RLIMIT_STACK] = 10240 * 1024
+            rlimit[resource.RLIMIT_MEMLOCK] = 4194384
 
         for res, limit in six.iteritems(rlimit):
             printf("Setting resource %s to %s" % (res, limit))
