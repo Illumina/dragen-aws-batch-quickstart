@@ -188,8 +188,12 @@ Rules:
         Fn::Contains:
         - - us-east-1
           - us-west-2
+          - ca-central-1
+          - eu-central-1          
           - eu-west-2
           - ap-southeast-2
+          - ap-northeast-1
+          - ap-northeast-2     
         - !Ref AWS::Region
       AssertDescription: This Quick Start utilizes DRAGEN Marketplace AMI which is only available
         in specified AWS Regions. Please launch the stack in one of these
