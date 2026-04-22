@@ -78,13 +78,21 @@ Mappings:
     AMI:
       DRAGEN: dragen-completesuite-*
     us-east-1:
-      DRAGEN: ami-0b200106f98d8acd2
+      DRAGEN: ami-029e470c5fbada5c1
     us-west-2:
-      DRAGEN: ami-07a7d63c4157030dc
+      DRAGEN: ami-0641521f1dfe332cf
+    ca-central-1:
+      DRAGEN: ami-0f678e5c6b2508556
+    eu-central-1:
+      DRAGEN: ami-05626d590dad557ec
     eu-west-2:
-      DRAGEN: ami-0ece6aa6f1f8d79f2
+      DRAGEN: ami-0c21d532139a70ad9
     ap-southeast-2:
-      DRAGEN: ami-0ffc6f405569e4661
+      DRAGEN: ami-0e1d0e73883b201cb
+    ap-northeast-1:
+      DRAGEN: ami-0b4a0cfd87398922c
+    ap-northeast-2:
+      DRAGEN: ami-04905ca8889c9a7b7
 
 Parameters:
   InstanceType:
@@ -190,8 +198,12 @@ Rules:
         Fn::Contains:
         - - us-east-1
           - us-west-2
+          - ca-central-1
+          - eu-central-1
           - eu-west-2
           - ap-southeast-2
+          - ap-northeast-1
+          - ap-northeast-2   
         - !Ref AWS::Region
       AssertDescription: This Quick Start utilizes DRAGEN Marketplace AMI which is only available
         in specified AWS Regions. Please launch the stack in one of these
