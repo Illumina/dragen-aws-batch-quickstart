@@ -1,6 +1,11 @@
 # quickstart-illumina-dragen
+
 ## DRAGEN on the AWS Cloud
 
+> [!IMPORTANT]
+> This repository is meant to provide a starting point for executing DRAGEN on AWS Batch.
+> It may require modifications to run for your specific analysis.
+> We encourage uses to consider the [Illumina Connected Analytics (ICA)](https://www.illumina.com/products/by-type/informatics-products/connected-analytics.html) platform for a seamless experience running DRAGEN analyses on AWS.
 
 This Quick Start deploys Dynamic Read Analysis for GENomics Complete Suite (DRAGEN CS), a data analysis platform by Illumina, on the AWS Cloud in about 15 minutes.
 
